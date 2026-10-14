@@ -5,6 +5,8 @@ prepare_environment()
 import sys
 if __name__ == "__main__" and not any(arg in ("-h", "--help") for arg in sys.argv):
     import arcpy
+# Reassert the clone's PROJ settings after ArcPy initializes, before GeoPandas imports.
+prepare_environment()
 import argparse
 import json
 import logging
@@ -16,7 +18,7 @@ import geopandas as gpd
 import pandas as pd
 from shapely.strtree import STRtree
 import RoadUsage_Step2_Routing_Fast as engine
-from RoadUsage_Workflow import DEFAULT_CONFIG, load_config, config_hash, write_json
+from RoadUsage_Workflow import DEFAULT_CONFIG, load_config, config_hash, disposition_filter_layer, write_json
 
 LOG = logging.getLogger(__name__)
 
@@ -121,14 +123,19 @@ def main():
     id_field = settings.get("disposition_id_field","DISP_NUM")
     owner_field = settings.get("owner_field")
     import arcpy
-    available = {field.name.lower():field.name for field in arcpy.ListFields(str(source))}
+    selected_source, source_count, selected_count = disposition_filter_layer(
+        arcpy, source, config["disposition_filter"], "step3_filtered_dispositions")
+    LOG.info("Disposition filter selected %s / %s features: %s",
+             selected_count, source_count, config["disposition_filter"])
+    available = {field.name.lower():field.name for field in arcpy.ListFields(selected_source)}
     if id_field.lower() not in available:
         raise ValueError(f"Disposition ID field not found: {id_field}")
     id_field = available[id_field.lower()]
     owner_field = available.get(owner_field.lower()) if owner_field else None
     requested = [id_field] + ([owner_field] if owner_field else [])
-    polygons = engine.validate_crs(engine.read_gdb_layer_arcpy(str(source), requested), "Dispositions")
-    if len(polygons) != int(arcpy.management.GetCount(str(source))[0]):
+    polygons = engine.validate_crs(engine.read_gdb_layer_arcpy(str(selected_source), requested), "Dispositions")
+    arcpy.management.Delete(selected_source)
+    if len(polygons) != selected_count:
         raise ValueError("Unreadable disposition geometry; refusing incomplete attribution")
     if id_field not in polygons or polygons[id_field].isna().any():
         raise ValueError("Disposition identifier field is missing or contains nulls")
@@ -184,6 +191,8 @@ def main():
     elif subject:
         business_status="UNAVAILABLE_COMPANY_FIELDS"
     write_json(folder / "Step3_Complete.json",{"Status":"COMPLETE","DispositionSource":str(source),
+        "DispositionFilter":config["disposition_filter"],
+        "SourceDispositionCount":source_count,"SelectedDispositionCount":selected_count,
         "DetailRows":len(details),"RoutesWithOverlap":int(totals_frame.OverlapQC.ne("OK").sum()),
         "OwnershipReports":business_status,"DistanceDefinition":"Network route only; unverified origin snap links excluded.",
         "OverlapRule":"DispositionAttributed_km is unique union coverage. Per-disposition distances may overlap: use Overlap_km to identify double attribution; do not sum them as unique route distance."})

@@ -36,6 +36,18 @@ def prepare_environment() -> None:
                 except OSError:
                     pass
 
+    # A stale user-level PROJ_LIB can override the PROJ database bundled with
+    # the active ArcGIS clone. Point both old and current PROJ variables at the
+    # active environment's database before GeoPandas/pyproj is imported.
+    proj_candidates = (
+        Path(sys.prefix) / "Library" / "share" / "proj",
+        Path(sys.prefix) / "Lib" / "site-packages" / "pyproj" / "proj_dir" / "share" / "proj",
+    )
+    proj_dir = next((path for path in proj_candidates if (path / "proj.db").is_file()), None)
+    if proj_dir is not None:
+        os.environ["PROJ_LIB"] = str(proj_dir)
+        os.environ["PROJ_DATA"] = str(proj_dir)
+
 
 def _resolve_config_path(value: Any, base: Path) -> Any:
     if value is None or not isinstance(value, (str, os.PathLike)) or not str(value).strip():
@@ -54,6 +66,8 @@ def load_config(path: Path | str = DEFAULT_CONFIG) -> dict[str, Any]:
     if not isinstance(config, dict):
         raise ValueError(f"Configuration must be a JSON object: {config_path}")
 
+    if not isinstance(config.get("disposition_filter"), str) or not config["disposition_filter"].strip():
+        raise ValueError("Configuration requires a nonempty disposition_filter SQL expression")
     base = config_path.parent
     if "output_root" in config:
         config["output_root"] = _resolve_config_path(config["output_root"], base)
@@ -71,6 +85,20 @@ def config_hash(config: dict[str, Any]) -> str:
     """Return a stable SHA-256 fingerprint of the effective configuration."""
     payload = json.dumps(config, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def disposition_filter_layer(arcpy: Any, source: str | Path, where: str, name: str):
+    """Select the configured disposition subset without changing its source."""
+    if not isinstance(where, str) or not where.strip():
+        raise ValueError("disposition_filter must be a nonempty SQL expression")
+    available = {field.name.upper() for field in arcpy.ListFields(str(source))}
+    missing = {"DISP_TYPE", "PURPCD"} - available
+    if missing:
+        raise ValueError(f"Disposition source is missing filter fields: {sorted(missing)}")
+    source_count = int(arcpy.management.GetCount(str(source))[0])
+    layer = arcpy.management.MakeFeatureLayer(str(source), name, where_clause=where).getOutput(0)
+    selected_count = int(arcpy.management.GetCount(layer)[0])
+    return layer, source_count, selected_count
 
 
 def write_json(path: Path | str, value: Any) -> None:

@@ -159,7 +159,9 @@ def read_gdb_layer_arcpy(layer_name, attribute_fields=None):
     This avoids the pyogrio/Fiona File GDB problem and Fiona date parsing.
     """
     import arcpy
-    feature_class = gdb_featureclass_path(layer_name)
+    # ArcPy feature layers preserve their SQL selection; named GDB classes
+    # still resolve against the configured output geodatabase.
+    feature_class = layer_name if arcpy.Exists(layer_name) else gdb_featureclass_path(layer_name)
 
     if not arcpy.Exists(feature_class):
         raise FileNotFoundError(

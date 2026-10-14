@@ -1,5 +1,6 @@
 {
   "target_wkid": 3400,
+  "disposition_filter": "DISP_TYPE IN ('RRD', 'PRD', 'PRE', 'PLC', 'ROE', 'DLO', 'LOC', 'MLL', 'DML', 'PML') OR DISP_TYPE = 'MSL' OR PURPCD LIKE '%ROAD%' OR PURPCD LIKE '%WELLSITE%'",
   "output_root": "Runs",
   "step1": {
     "road_network": "F:\\Road Usage\\Progress\\RoadUsageProcess.gdb\\SampleClipped_ML_RoadDataV2",

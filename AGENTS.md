@@ -8,6 +8,8 @@ creates routes and exceptions; optional Step 3 reports disposition distances
 and ownership where source fields permit. RoadUsage_Config.json is the shared
 configuration and RoadUsage_Run.py runs the numbered scripts. The reviewed
 working CRS is EPSG:3400, superseding the historical Web Mercator setting.
+Apply the configurable ML-team disposition filter from RoadUsage_Config.json
+to every disposition read in Steps 1 and 3; preserve prior runs.
 All 6,609 reviewed bridge candidates were rejected; do not insert them. Keep
 source data unchanged, preserve prior runs, and do not delete files without
 approval. The Thursday delivery prioritizes routes and exceptions over reports.

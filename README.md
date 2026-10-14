@@ -9,6 +9,7 @@ not the scheduler's working directory. Current working CRS is **EPSG:3400**.
 | `RoadUsage_Step1.py` | Prepare ML road geometry and overlay disposition/road attributes | `Prepared_Roads.gdb` |
 | `RoadUsage_Step2_Routing.py` | Route origins to public roads | `RoadUsage_Routes.gpkg`, `Route_Summary.csv`, `Route_Segments.csv` |
 | `RoadUsage_Step3_Reporting.py` | Optional disposition distances and ownership reports | `Route_Disposition_Detail.csv`, `Route_Disposition_QC.csv` |
+| `RoadUsage_Step4_CompleteRoute.py` | One continuous route feature with disposition lists | `RoadUsage_CompleteRoute.gpkg` (`main.CompleteRoute`) |
 | `RoadUsage_Run.py` | Run the steps in order, stopping on failure | timestamped run folder, logs and `Run_Status.json` |
 
 The `_Fast`, topology and bridge files are supporting/diagnostic tools. You do
@@ -40,9 +41,17 @@ From the ArcGIS Pro clone environment, edit the configuration and run:
 
 ```powershell
 python -B -u RoadUsage_Run.py --config RoadUsage_Config.json
-# Optional reports after routing succeeds:
+# Optional reports and CompleteRoute after routing succeeds:
 python -B -u RoadUsage_Run.py --config RoadUsage_Config.json --with-report
 ```
+
+The `disposition_filter` in `RoadUsage_Config.json` uses the ML team's
+disposition-type and purpose-code selection. Step 1 applies it before copying,
+projecting, polygon conversion, and road overlay. Step 3 applies the same filter
+to its polygon source, including an explicit `--dispositions` source. Both
+`DISP_TYPE` and `PURPCD` must be present; source and selected counts are logged.
+Existing runs retain their original disposition attribution. Make a new run to
+produce outputs with this filter.
 
 A fresh folder is created under `output_root` for every run. Sources and prior
 runs are preserved. Step 1 creates a new processed geodatabase and does not
@@ -60,6 +69,7 @@ To run individual steps, use the same configuration and run folder:
 python -B -u RoadUsage_Step1.py --config RoadUsage_Config.json --run-dir Runs/example
 python -B -u RoadUsage_Step2_Routing.py --config RoadUsage_Config.json --run-dir Runs/example
 python -B -u RoadUsage_Step3_Reporting.py --config RoadUsage_Config.json --run-dir Runs/example
+python -B -u RoadUsage_Step4_CompleteRoute.py --config RoadUsage_Config.json --run-dir Runs/example
 ```
 
 Do not change configuration between steps. Choose a new folder to rerun outputs;
@@ -84,6 +94,16 @@ has been installed automatically; choose your desired schedule in Windows.
 
 - `Generated_Routes`: continuous, oriented network geometry from the snapped
   point to a public road. One feature per positive-length route.
+- `main.CompleteRoute` in `RoadUsage_CompleteRoute.gpkg`: one `LineString` feature
+  per positive-length network route with the same `RouteID` and distance as
+  `Generated_Routes`. Run Step 4 after the disposition report, or use
+  `--with-report` to run both automatically. `DispositionID`,
+  `DispositionOwnerName`, `OwnerConflict`, `DistanceTravelled_m`,
+  `DistanceTravelled_km`, and `PercentOfRoute` are JSON lists in the attribute
+  table. Entries at the same position refer to the same disposition; lists
+  are ordered by disposition ID. Empty lists mean no disposition overlap.
+  `DispositionAttributed_km` is unique covered distance and `Overlap_km`
+  flags duplicated attribution where dispositions overlap.
 - `Origin_Results`: every origin, including zero-distance public-road arrivals
   and exceptions; origin identifiers and available names/companies are retained.
 - `Public_Road_Arrivals`: arrival points and destination source-road identifiers.

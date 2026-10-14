@@ -1,4 +1,4 @@
-"""Unattended sequence: Step 1, Step 2, and optionally Step 3."""
+"""Unattended sequence: Steps 1 and 2, with optional Steps 3 and 4."""
 import argparse
 from datetime import datetime
 from pathlib import Path
@@ -11,13 +11,14 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config",type=Path,default=DEFAULT_CONFIG)
     parser.add_argument("--run-dir",type=Path,help="New output directory; defaults to a timestamp under output_root")
-    parser.add_argument("--with-report",action="store_true",help="Run optional disposition report after routes")
+    parser.add_argument("--with-report",action="store_true",help="Run disposition report and CompleteRoute after routes")
     args = parser.parse_args()
     config = load_config(args.config)
     folder = (args.run_dir or Path(config["output_root"]) / datetime.now().strftime("%Y%m%d_%H%M%S")).resolve()
     folder.mkdir(parents=True,exist_ok=False)
     scripts = ["RoadUsage_Step1.py","RoadUsage_Step2_Routing.py"]
-    if args.with_report: scripts.append("RoadUsage_Step3_Reporting.py")
+    if args.with_report:
+        scripts.extend(["RoadUsage_Step3_Reporting.py", "RoadUsage_Step4_CompleteRoute.py"])
     state = {"Status":"RUNNING","RunFolder":str(folder),"CompletedSteps":[]}
     write_json(folder / "Run_Status.json",state)
     process = None

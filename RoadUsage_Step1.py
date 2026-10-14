@@ -39,6 +39,7 @@ from collections import defaultdict
 ROAD_NETWORK_SOURCE  = r"F:\Road Usage\Progress\RoadUsageProcess.gdb\SampleClipped_ML_RoadData"
 ROADS_SOURCE  = r"F:\Road Usage\Progress\RoadUsageProcess.gdb\SampleClipped_RoadSeg"
 DISPOSITION_SOURCE  = r"F:\Road Usage\Progress\RoadUsageProcess.gdb\SampleClipped_DIDS"
+DISPOSITION_WHERE_CLAUSE = None
 OUT_GDB = r"F:\Road Usage\Progress\RoadUsageProcess.gdb"
 TARGET_WKID = 3400
 
@@ -67,6 +68,7 @@ DISP_QC_NAME = "Disposition_Polygon_QC"
 
 
 def prepare_projected_inputs():
+    from RoadUsage_Workflow import disposition_filter_layer
 
     msg("")
     msg("--------------------------------------------------")
@@ -108,6 +110,15 @@ def prepare_projected_inputs():
         msg(f"  Source CRS : {source_sr.name}")
         msg(f"  Target CRS : {target_sr.name}")
 
+        input_fc = source_fc
+        filtered_layer = None
+        if label == "Disposition":
+            filtered_layer, source_count, selected_count = disposition_filter_layer(
+                arcpy, source_fc, DISPOSITION_WHERE_CLAUSE, "step1_filtered_dispositions")
+            input_fc = filtered_layer
+            msg(f"  Disposition filter: {DISPOSITION_WHERE_CLAUSE}")
+            msg(f"  Filtered features : {selected_count:,} / {source_count:,}")
+
         delete_if_exists(output_fc)
 
         # ---------------------------------------------------------------
@@ -132,7 +143,7 @@ def prepare_projected_inputs():
             msg("  Already in target CRS - copying.")
 
             arcpy.management.CopyFeatures(
-                source_fc,
+                input_fc,
                 output_fc
             )
 
@@ -149,7 +160,7 @@ def prepare_projected_inputs():
             msg("  Projecting...")
 
             arcpy.management.Project(
-                in_dataset=source_fc,
+                in_dataset=input_fc,
                 out_dataset=output_fc,
                 out_coor_system=target_sr
             )
@@ -163,6 +174,8 @@ def prepare_projected_inputs():
         msg(
             f"  Features   : {count:,}"
         )
+        if filtered_layer is not None:
+            arcpy.management.Delete(filtered_layer)
 
     msg("")
     msg("Projected inputs prepared successfully.")
@@ -1986,7 +1999,8 @@ def scheduled_main():
     globals().update(SCHEDULED_RUN=True, OUT_GDB=str(output_gdb), TARGET_WKID=config["target_wkid"],
         ROAD_NETWORK_SOURCE=settings["road_network"], ROADS_SOURCE=settings["roads"],
         DISPOSITION_SOURCE=settings["dispositions"], DISP_ID_FIELD=settings["disposition_id_field"],
-        ROAD_JURIS_FIELD=settings["road_jurisdiction_field"])
+        ROAD_JURIS_FIELD=settings["road_jurisdiction_field"],
+        DISPOSITION_WHERE_CLAUSE=config["disposition_filter"])
     paths = {"ROAD_NETWORK":"_input_Road_Network_Projected", "ROADS":"_input_Roads_Projected",
         "DISPOSITION":"_input_Disposition_Projected", "OUT_FC":OUT_NAME,
         "PRIVATE_UNKNOWN_FC":PRIVATE_UNKNOWN_NAME, "PUBLIC_FC":PUBLIC_NAME,
@@ -1996,7 +2010,9 @@ def scheduled_main():
     globals().update({name: str(output_gdb / layer) for name,layer in paths.items()})
     main()
     write_json(folder / "Step1_Complete.json", {"Status":"COMPLETE", "ConfigSHA256":config_hash(config),
-        "PreparedGDB":str(output_gdb), "Config":config})
+        "PreparedGDB":str(output_gdb), "DispositionFilter":config["disposition_filter"],
+        "SelectedDispositionCount":int(arcpy.management.GetCount(str(output_gdb / "_input_Disposition_Projected"))[0]),
+        "Config":config})
 
 
 if __name__ == "__main__":

@@ -8,6 +8,8 @@ prepare_environment()
 import sys
 if __name__ == "__main__" and not any(arg in ("-h", "--help") for arg in sys.argv) and not any(arg.startswith("--reviewed-cache") for arg in sys.argv):
     import arcpy
+# Reassert the clone's PROJ settings after ArcPy initializes, before GeoPandas imports.
+prepare_environment()
 import csv
 import hashlib
 import json

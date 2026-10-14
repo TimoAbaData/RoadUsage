@@ -1,0 +1,10 @@
+{
+  "Status": "COMPLETE",
+  "ConfigSHA256": "2c0cfa1181cbe6a2a416da92abc7df963edec4fff0c00ebafd3c29f86fd3bafa",
+  "GeoPackage": "D:\\Work files\\Ad-Hoc\\Road Usage\\Road Usage Python\\RoadUsage\\Runs\\20261013_112810\\RoadUsage_CompleteRoute.gpkg",
+  "Layer": "CompleteRoute",
+  "RouteCount": 30925,
+  "ZeroLengthPublicOrigins": 6953,
+  "Geometry": "Network route from snapped road point to public road; unverified snap link excluded",
+  "DispositionLists": "JSON arrays of values aligned by position across disposition columns"
+}
