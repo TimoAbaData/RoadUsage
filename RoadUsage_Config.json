@@ -47,5 +47,6 @@
     "disposition_id_field": "DISP_NUM",
     "owner_field": "COMPANY",
     "subject_company": null
-  }
+  },
+  "min_disposition_overlap_m": 20.0
 }

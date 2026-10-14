@@ -8,6 +8,8 @@ if __name__ == "__main__" and not any(arg in ("-h", "--help") for arg in sys.arg
 # Reassert the clone's PROJ settings after ArcPy initializes, before GeoPandas imports.
 prepare_environment()
 import argparse
+import csv
+from itertools import groupby
 import json
 import logging
 import shutil
@@ -18,6 +20,7 @@ import geopandas as gpd
 import pandas as pd
 from shapely.strtree import STRtree
 import RoadUsage_Step2_Routing_Fast as engine
+from RoadUsage_DispositionContinuity import merge_spans, smooth_short_intervals
 from RoadUsage_Workflow import DEFAULT_CONFIG, load_config, config_hash, disposition_filter_layer, write_json
 
 LOG = logging.getLogger(__name__)
@@ -44,7 +47,7 @@ def line_parts(geometry):
     return [line for part in getattr(geometry,"geoms",[]) for line in line_parts(part)]
 
 
-def attribute_route(geometry, dispositions, tree, id_field, owner_field=None, cache=None):
+def attribute_route(geometry, dispositions, tree, id_field, owner_field=None, cache=None, minimum_overlap_m=0.0, protected_intervals=None):
     """Measure polygon coverage as intervals on each travelled route part.
 
     A per-run cache reuses intersections on roads shared by many routes. Keep
@@ -55,17 +58,22 @@ def attribute_route(geometry, dispositions, tree, id_field, owner_field=None, ca
     parts = line_parts(geometry)
     keys = [part.wkb for part in parts]
     lengths = [part.length for part in parts]
-    groups, owners, covered = {}, {}, {}
+    offsets = []
+    travelled = 0.0
+    for length in lengths:
+        offsets.append(travelled)
+        travelled += length
+    intervals_by_id, owners = {}, {}
     for part_raw, polygon_raw in tree.query(parts, predicate="intersects").T:
         part_idx, polygon_idx = int(part_raw), int(polygon_raw)
-        meta_key = ("meta",polygon_idx)
+        meta_key = ("meta", polygon_idx)
         if meta_key not in cache:
             row = dispositions.iloc[polygon_idx]
             owner = row.get(owner_field) if owner_field else None
             owner = str(owner) if owner is not None and pd.notna(owner) and str(owner).strip() else None
-            cache[meta_key] = (str(row[id_field]),owner,row.geometry)
+            cache[meta_key] = (str(row[id_field]), owner, row.geometry)
         disp_id, owner, polygon = cache[meta_key]
-        clip_key = (keys[part_idx],polygon_idx)
+        clip_key = (keys[part_idx], polygon_idx)
         if clip_key not in cache:
             line = parts[part_idx]
             intersection = line.intersection(polygon)
@@ -74,25 +82,55 @@ def attribute_route(geometry, dispositions, tree, id_field, owner_field=None, ca
                 if clipped.length <= 1e-7: continue
                 a = float(line.project(Point(clipped.coords[0])))
                 b = float(line.project(Point(clipped.coords[-1])))
-                low,high = sorted((a,b))
-                low,high = max(0.0,low),min(lengths[part_idx],high)
-                if high-low > 1e-7: intervals.append((low,high))
+                low, high = sorted((a, b))
+                low, high = max(0.0, low), min(lengths[part_idx], high)
+                if high - low > 1e-7: intervals.append((low, high))
             cache[clip_key] = intervals
         intervals = cache[clip_key]
         if not intervals: continue
-        groups.setdefault(disp_id,{}).setdefault(part_idx,[]).extend(intervals)
-        covered.setdefault(part_idx,[]).extend(intervals)
-        if owner: owners.setdefault(disp_id,set()).add(owner)
+        intervals_by_id.setdefault(disp_id, []).extend(
+            (offsets[part_idx] + low, offsets[part_idx] + high)
+            for low, high in intervals)
+        if owner: owners.setdefault(disp_id, set()).add(owner)
+    protected_intervals = protected_intervals or {}
+    for disp_id, intervals in protected_intervals.items():
+        intervals_by_id.setdefault(disp_id, []).extend(intervals)
+    effective = smooth_short_intervals(intervals_by_id, minimum_overlap_m,
+                                       protected_by_label=protected_intervals)
     details = []
-    for disp_id, intervals_by_part in groups.items():
-        length = sum(merge_intervals(intervals) for intervals in intervals_by_part.values())
-        names = sorted(owners.get(disp_id,set()))
+    for disp_id, intervals in effective.items():
+        length = sum(end - start for start, end in intervals)
+        names = sorted(owners.get(disp_id, set()))
         details.append({"DispositionID":disp_id,"DispositionOwnerName":" | ".join(names) or None,
                         "OwnerConflict":int(len(names)>1),"DistanceTravelled_m":length,
                         "DistanceTravelled_km":length/1000})
-    attributed = sum(merge_intervals(intervals) for intervals in covered.values())
-    overlap = max(0.0,sum(d["DistanceTravelled_m"] for d in details)-attributed)
+    attributed = sum(end - start for start, end in merge_spans(
+        [span for spans in effective.values() for span in spans]))
+    overlap = max(0.0, sum(d["DistanceTravelled_m"] for d in details) - attributed)
     return details, attributed, overlap
+
+
+
+def route_segment_protections(path):
+    """Stream ordered Step 2 segments as effective Step 1 disposition spans."""
+    with path.open(newline="", encoding="utf-8") as stream:
+        reader = csv.DictReader(stream)
+        if "DispositionID" not in (reader.fieldnames or []):
+            raise ValueError("Route_Segments.csv lacks disposition attributes; rerun Step 2")
+        for route_id, rows in groupby(reader, key=lambda row: row["RouteID"]):
+            offset = 0.0
+            protected = {}
+            for expected, row in enumerate(rows, 1):
+                if int(row["Sequence"]) != expected:
+                    raise ValueError(f"Route segment sequence mismatch: {route_id}")
+                length = float(row["Distance_m"])
+                if length < 0:
+                    raise ValueError(f"Negative route segment distance: {route_id}")
+                disp_id = (row["DispositionID"] or "").strip()
+                if disp_id and length > 0:
+                    protected.setdefault(disp_id, []).append((offset, offset + length))
+                offset += length
+            yield route_id, protected, offset
 
 
 def main():
@@ -150,8 +188,14 @@ def main():
     tree = STRtree(list(polygons.geometry))
     detail, totals = [], []
     intersection_cache = {}
+    segment_groups = route_segment_protections(folder / "Route_Segments.csv")
     for number,route in enumerate(routes.itertuples(index=False),1):
-        records,attributed,overlap = attribute_route(route.geometry,polygons,tree,id_field,owner_field,intersection_cache)
+        route_id, protected, segment_length = next(segment_groups)
+        if route_id != route.RouteID or abs(segment_length - route.TotalRoute_m) > 1e-5:
+            raise ValueError(f"Route segments do not match geometry: {route.RouteID}")
+        records,attributed,overlap = attribute_route(
+            route.geometry,polygons,tree,id_field,owner_field,intersection_cache,
+            config.get("min_disposition_overlap_m",0.0),protected)
         if attributed > route.TotalRoute_m + 1e-6 or any(r["DistanceTravelled_m"] > route.TotalRoute_m + 1e-6 for r in records):
             raise RuntimeError(f"Disposition attribution exceeds route distance: {route.RouteID}")
         origin = lookup.loc[route.RouteID]
@@ -164,6 +208,8 @@ def main():
             "DispositionAttributed_km":attributed/1000,"Unattributed_km":max(0,route.TotalRoute_m-attributed)/1000,
             "Overlap_km":overlap/1000,"OverlapQC":"REVIEW_OVERLAPPING_DISPOSITIONS" if overlap>1e-6 else "OK"})
         if number%1000==0: LOG.info("Attributed %s / %s routes",number,len(routes))
+    if next(segment_groups, None) is not None:
+        raise ValueError("Route segments contain a route missing from Generated_Routes")
     for row in results[results.RouteStatus.eq("ALREADY_PUBLIC")].itertuples(index=False):
         totals.append({"RouteID":row.RouteID,"TotalRoute_km":0,"DispositionAttributed_km":0,
                        "Unattributed_km":0,"Overlap_km":0,"OverlapQC":"OK"})
@@ -192,6 +238,7 @@ def main():
         business_status="UNAVAILABLE_COMPANY_FIELDS"
     write_json(folder / "Step3_Complete.json",{"Status":"COMPLETE","DispositionSource":str(source),
         "DispositionFilter":config["disposition_filter"],
+        "MinDispositionOverlap_m":config.get("min_disposition_overlap_m",0.0),
         "SourceDispositionCount":source_count,"SelectedDispositionCount":selected_count,
         "DetailRows":len(details),"RoutesWithOverlap":int(totals_frame.OverlapQC.ne("OK").sum()),
         "OwnershipReports":business_status,"DistanceDefinition":"Network route only; unverified origin snap links excluded.",

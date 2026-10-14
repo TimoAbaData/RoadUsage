@@ -68,6 +68,9 @@ def load_config(path: Path | str = DEFAULT_CONFIG) -> dict[str, Any]:
 
     if not isinstance(config.get("disposition_filter"), str) or not config["disposition_filter"].strip():
         raise ValueError("Configuration requires a nonempty disposition_filter SQL expression")
+    minimum = config.get("min_disposition_overlap_m", 0.0)
+    if isinstance(minimum, bool) or not isinstance(minimum, (int, float)) or not 0 <= minimum < float("inf"):
+        raise ValueError("min_disposition_overlap_m must be a nonnegative finite number")
     base = config_path.parent
     if "output_root" in config:
         config["output_root"] = _resolve_config_path(config["output_root"], base)

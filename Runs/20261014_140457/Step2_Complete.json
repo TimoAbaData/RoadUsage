@@ -1,0 +1,74 @@
+{
+  "Status": "COMPLETE",
+  "ConfigSHA256": "333ab0f1dff314f3a8af715780d3668414f4129ffa39d6e02d09cd39815dd2b8",
+  "Input": {
+    "Mode": "FRESH_STEP1",
+    "PreparedGDB": "D:\\Work files\\Ad-Hoc\\Road Usage\\Road Usage Python\\RoadUsage\\Runs\\20261014_140457\\Prepared_Roads.gdb"
+  },
+  "Origins": 74367,
+  "ReachableOrigins": 37897,
+  "StatusCounts": {
+    "UNROUTED_SNAP_TOO_FAR": 34236,
+    "ROUTED": 30908,
+    "ALREADY_PUBLIC": 6989,
+    "UNROUTABLE_DISCONNECTED": 2234
+  },
+  "RouteSegments": 796566,
+  "CRS": "EPSG:3400",
+  "SyntheticBridgesAdded": 0,
+  "Seconds": 750.0783013000619,
+  "DistanceDefinition": "TotalRoute_m/km measures travel from the snapped network point to public road. SnapDistance_m is separate and unverified; it is not included in total route distance.",
+  "ZeroLengthRoutes": "ALREADY_PUBLIC origins are in Origin_Results and Public_Road_Arrivals; no fictitious zero-length line is written.",
+  "Config": {
+    "target_wkid": 3400,
+    "disposition_filter": "DISP_TYPE IN ('RRD', 'PRD', 'PRE', 'PLC', 'ROE', 'DLO', 'LOC', 'MLL', 'DML', 'PML') OR DISP_TYPE = 'MSL' OR PURPCD LIKE '%ROAD%' OR PURPCD LIKE '%WELLSITE%'",
+    "output_root": "D:\\Work files\\Ad-Hoc\\Road Usage\\Road Usage Python\\RoadUsage\\Runs",
+    "step1": {
+      "road_network": "F:\\Road Usage\\Progress\\RoadUsageProcess.gdb\\SampleClipped_ML_RoadDataV2",
+      "roads": "F:\\Road Usage\\Progress\\RoadUsageProcess.gdb\\SampleClipped_RoadSeg",
+      "dispositions": "F:\\Road Usage\\Progress\\RoadUsageProcess.gdb\\SampleClipped_DIDS",
+      "disposition_id_field": "DISP_NUM",
+      "road_jurisdiction_field": "ROADJURIS"
+    },
+    "routing": {
+      "topology_tolerance_m": 0.25,
+      "max_origin_snap_m": 100.0,
+      "warn_origin_snap_m": 25.0,
+      "grade_level_field": null,
+      "grade_structure_fields": [
+        "BRIDGE",
+        "TUNNEL",
+        "STRUCTURE"
+      ]
+    },
+    "origins": [
+      {
+        "path": "F:\\Road Usage\\Progress\\RoadUsageProcess.gdb\\ErcbFacility_SampleClip",
+        "id_field": "FacilityId",
+        "origin_type": "ERCB_FACILITY",
+        "name_field": null,
+        "company_field": null
+      },
+      {
+        "path": "F:\\Road Usage\\Progress\\RoadUsageProcess.gdb\\abadata2_dbo_equipment_SampleClip",
+        "id_field": "FacilityID",
+        "origin_type": "EQUIPMENT",
+        "name_field": null,
+        "company_field": null
+      },
+      {
+        "path": "F:\\Road Usage\\Progress\\RoadUsageProcess.gdb\\oil_and_gas_wells_pt_SampleClip",
+        "id_field": "WellId",
+        "origin_type": "WELL",
+        "name_field": null,
+        "company_field": null
+      }
+    ],
+    "reporting": {
+      "disposition_id_field": "DISP_NUM",
+      "owner_field": "COMPANY",
+      "subject_company": null
+    },
+    "min_disposition_overlap_m": 20.0
+  }
+}

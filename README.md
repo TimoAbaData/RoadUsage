@@ -53,6 +53,14 @@ to its polygon source, including an explicit `--dispositions` source. Both
 Existing runs retain their original disposition attribution. Make a new run to
 produce outputs with this filter.
 
+`min_disposition_overlap_m` is 20 m. A continuous disposition overlap of 20 m
+or less inherits the longer touching disposition on the same ML road or route.
+If no longer disposition touches it, that short portion is unattributed. The
+rule changes disposition attributes and reported disposition distances, not
+road or route geometry. Step 2 carries the effective Step 1 disposition ID on
+each route segment so Step 3 also retains a valid short partial route. New runs
+are required.
+
 A fresh folder is created under `output_root` for every run. Sources and prior
 runs are preserved. Step 1 creates a new processed geodatabase and does not
 modify the ArcGIS Pro project or open a GUI. Missing/unreadable required inputs

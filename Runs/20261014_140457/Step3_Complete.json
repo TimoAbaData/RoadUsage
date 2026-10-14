@@ -1,0 +1,13 @@
+{
+  "Status": "COMPLETE",
+  "DispositionSource": "D:\\Work files\\Ad-Hoc\\Road Usage\\Road Usage Python\\RoadUsage\\Runs\\20261014_140457\\Prepared_Roads.gdb\\Disposition_Polygons",
+  "DispositionFilter": "DISP_TYPE IN ('RRD', 'PRD', 'PRE', 'PLC', 'ROE', 'DLO', 'LOC', 'MLL', 'DML', 'PML') OR DISP_TYPE = 'MSL' OR PURPCD LIKE '%ROAD%' OR PURPCD LIKE '%WELLSITE%'",
+  "MinDispositionOverlap_m": 20.0,
+  "SourceDispositionCount": 28951,
+  "SelectedDispositionCount": 28951,
+  "DetailRows": 62990,
+  "RoutesWithOverlap": 13970,
+  "OwnershipReports": "NOT_REQUESTED_SUBJECT_COMPANY_UNSET",
+  "DistanceDefinition": "Network route only; unverified origin snap links excluded.",
+  "OverlapRule": "DispositionAttributed_km is unique union coverage. Per-disposition distances may overlap: use Overlap_km to identify double attribution; do not sum them as unique route distance."
+}

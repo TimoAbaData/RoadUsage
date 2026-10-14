@@ -40,6 +40,7 @@ ROAD_NETWORK_SOURCE  = r"F:\Road Usage\Progress\RoadUsageProcess.gdb\SampleClipp
 ROADS_SOURCE  = r"F:\Road Usage\Progress\RoadUsageProcess.gdb\SampleClipped_RoadSeg"
 DISPOSITION_SOURCE  = r"F:\Road Usage\Progress\RoadUsageProcess.gdb\SampleClipped_DIDS"
 DISPOSITION_WHERE_CLAUSE = None
+MIN_DISPOSITION_OVERLAP_M = 0.0
 OUT_GDB = r"F:\Road Usage\Progress\RoadUsageProcess.gdb"
 TARGET_WKID = 3400
 
@@ -113,8 +114,7 @@ def prepare_projected_inputs():
         input_fc = source_fc
         filtered_layer = None
         if label == "Disposition":
-            filtered_layer, source_count, selected_count = disposition_filter_layer(
-                arcpy, source_fc, DISPOSITION_WHERE_CLAUSE, "step1_filtered_dispositions")
+            filtered_layer, source_count, selected_count = disposition_filter_layer(arcpy, source_fc, DISPOSITION_WHERE_CLAUSE, "step1_filtered_dispositions")
             input_fc = filtered_layer
             msg(f"  Disposition filter: {DISPOSITION_WHERE_CLAUSE}")
             msg(f"  Filtered features : {selected_count:,} / {source_count:,}")
@@ -941,6 +941,111 @@ def prepare_road_network():
 
 
 # ============================================================================
+# SHORT DISPOSITION OVERLAPS
+# ============================================================================
+
+def smooth_short_disposition_matches(maximum_m):
+    """Relabel short continuous ML-road overlaps in the temporary overlay.
+
+    Only a longer disposition touching the same original ML line can inherit a
+    short run. Fully covered duplicate linework is removed. An isolated short
+    run is removed and becomes unmatched when the outside pieces are rebuilt.
+    Road geometry and original source feature classes are never modified.
+    """
+    if maximum_m <= 0:
+        return
+    matched = {field.name.lower(): field.name for field in arcpy.ListFields(MATCHED_FC)}
+    attr_fields = [matched[field.name.lower()] for field in arcpy.ListFields(DISP_POLY)
+                   if not field.required and field.type not in ("OID", "Geometry", "Blob", "Raster")
+                   and field.name.lower() in matched and field.name.lower() != ML_ID_FIELD.lower()]
+    disp_field = next((name for name in attr_fields if name.lower() == DISP_ID_FIELD.lower()), None)
+    if disp_field is None:
+        raise ValueError(f"Disposition field {DISP_ID_FIELD} missing from overlay")
+    disp_index = attr_fields.index(disp_field)
+    changes = {}
+    short_runs = 0
+
+    def process_group(rows):
+        nonlocal short_runs
+        if not rows:
+            return
+        parent = list(range(len(rows)))
+
+        def root(index):
+            while parent[index] != index:
+                parent[index] = parent[parent[index]]
+                index = parent[index]
+            return index
+
+        by_disp = defaultdict(list)
+        for index, row in enumerate(rows):
+            by_disp[str(row["attrs"][disp_index])].append(index)
+        for indices in by_disp.values():
+            for position, left in enumerate(indices):
+                for right in indices[position + 1:]:
+                    if rows[left]["geom"].distanceTo(rows[right]["geom"]) <= 0.05:
+                        parent[root(right)] = root(left)
+        groups = defaultdict(list)
+        for index, row in enumerate(rows):
+            groups[root(index)].append(row)
+        runs = []
+        for members in groups.values():
+            combined = members[0]["geom"]
+            for member in members[1:]:
+                combined = combined.union(member["geom"])
+            runs.append({"rows": members, "geom": combined, "length": combined.length,
+                         "disp": str(members[0]["attrs"][disp_index])})
+        longer = [run for run in runs if run["length"] > maximum_m + 1e-7]
+        for short in runs:
+            if short["length"] > maximum_m + 1e-7:
+                continue
+            short_runs += 1
+            touching = [run for run in longer if run["disp"] != short["disp"]
+                        and short["geom"].distanceTo(run["geom"]) <= 0.25]
+            winner = min(touching, key=lambda run: (-run["length"], run["disp"])) if touching else None
+            for member in short["rows"]:
+                if winner is None:
+                    changes[member["oid"]] = None
+                else:
+                    # A smaller disposition entirely inside a larger one
+                    # must not create a duplicate route edge.
+                    try:
+                        redundant = member["geom"].difference(winner["geom"]).length <= 0.05
+                    except Exception:
+                        redundant = False
+                    changes[member["oid"]] = None if redundant else winner["rows"][0]["attrs"]
+
+    fields = ["OID@", ML_ID_FIELD, "SHAPE@"] + attr_fields
+    with arcpy.da.SearchCursor(MATCHED_FC, fields,
+                               sql_clause=(None, f"ORDER BY {ML_ID_FIELD}")) as cursor:
+        current_id, rows = None, []
+        for oid, ml_id, geom, *attrs in cursor:
+            if current_id is not None and ml_id != current_id:
+                process_group(rows)
+                rows = []
+            current_id = ml_id
+            if geom is not None:
+                rows.append({"oid": oid, "geom": geom, "attrs": attrs})
+        process_group(rows)
+    reassigned = removed = 0
+    with arcpy.da.UpdateCursor(MATCHED_FC, ["OID@"] + attr_fields) as cursor:
+        for row in cursor:
+            oid = row[0]
+            if oid not in changes:
+                continue
+            attrs = changes[oid]
+            if attrs is None:
+                cursor.deleteRow()
+                removed += 1
+            else:
+                row[1:] = attrs
+                cursor.updateRow(row)
+                reassigned += 1
+    msg(f"Short disposition runs (<= {maximum_m:g} m): {short_runs:,}; "
+        f"reassigned pieces: {reassigned:,}; removed pieces: {removed:,}")
+
+
+# ============================================================================
 # DISPOSITION OVERLAY
 # ============================================================================
 
@@ -972,6 +1077,8 @@ def disposition_overlay():
         None,
         "LINE"
     )
+
+    smooth_short_disposition_matches(MIN_DISPOSITION_OVERLAP_M)
 
     matched_count = int(
         arcpy.management.GetCount(MATCHED_FC)[0]
@@ -2000,7 +2107,8 @@ def scheduled_main():
         ROAD_NETWORK_SOURCE=settings["road_network"], ROADS_SOURCE=settings["roads"],
         DISPOSITION_SOURCE=settings["dispositions"], DISP_ID_FIELD=settings["disposition_id_field"],
         ROAD_JURIS_FIELD=settings["road_jurisdiction_field"],
-        DISPOSITION_WHERE_CLAUSE=config["disposition_filter"])
+        DISPOSITION_WHERE_CLAUSE=config["disposition_filter"],
+        MIN_DISPOSITION_OVERLAP_M=config.get("min_disposition_overlap_m",0.0))
     paths = {"ROAD_NETWORK":"_input_Road_Network_Projected", "ROADS":"_input_Roads_Projected",
         "DISPOSITION":"_input_Disposition_Projected", "OUT_FC":OUT_NAME,
         "PRIVATE_UNKNOWN_FC":PRIVATE_UNKNOWN_NAME, "PUBLIC_FC":PUBLIC_NAME,
@@ -2011,6 +2119,7 @@ def scheduled_main():
     main()
     write_json(folder / "Step1_Complete.json", {"Status":"COMPLETE", "ConfigSHA256":config_hash(config),
         "PreparedGDB":str(output_gdb), "DispositionFilter":config["disposition_filter"],
+        "MinDispositionOverlap_m":config.get("min_disposition_overlap_m",0.0),
         "SelectedDispositionCount":int(arcpy.management.GetCount(str(output_gdb / "_input_Disposition_Projected"))[0]),
         "Config":config})
 

@@ -104,7 +104,8 @@ def load_inputs(config, folder, reviewed):
     roads = gpd.GeoDataFrame(pd.concat([private, public], ignore_index=True), crs=private.crs)
     roads["SOURCE_ROAD_ID"] = roads.index.astype(int)
     # Only retain fields needed to route and identify source segments.
-    wanted = ["SOURCE_ROAD_ID", "SOURCE_LAYER", "SOURCE_OID", "ROAD_CLASS", "geometry",
+    wanted = ["SOURCE_ROAD_ID", "SOURCE_LAYER", "SOURCE_OID", "ROAD_CLASS",
+              config["step1"].get("disposition_id_field", "DISP_NUM"), "geometry",
               engine.GRADE_LEVEL_FIELD, *engine.GRADE_STRUCTURE_FIELDS]
     roads = roads[list(dict.fromkeys(c for c in wanted if c in roads))]
     edges = engine.noded_segments(roads)
@@ -156,7 +157,7 @@ def string(value):
     return None if value is None or pd.isna(value) else str(value)
 
 
-def export_routes(graph, edges, origins, folder):
+def export_routes(graph, edges, origins, folder, disposition_id_field="DISP_NUM"):
     destinations, _ = engine.public_destination_nodes(graph)
     distance, parent, super_node = engine.precompute_destination_tree(graph, destinations)
     geoms, tree = engine.build_edge_spatial_index(edges)
@@ -166,10 +167,12 @@ def export_routes(graph, edges, origins, folder):
               "SnapDistance_m":"float", "DestinationRoadID":"int"}}
     records, point_geoms, end_records, end_geoms, links = [], [], [], [], []
     segment_count = 0
+    disposition_by_edge = (dict(zip(edges.EDGE_ID.astype(int), edges[disposition_id_field]))
+                           if disposition_id_field in edges else {})
     with fiona.open(gpkg, "w", driver="GPKG", layer="Generated_Routes", schema=schema,
                     crs_wkt=edges.crs.to_wkt()) as output, (folder / "Route_Segments.csv").open("w",newline="",encoding="utf-8") as segfile:
         segments = csv.writer(segfile)
-        segments.writerow(["RouteID","Sequence","EdgeID","SourceRoadID","Distance_m"])
+        segments.writerow(["RouteID","Sequence","EdgeID","SourceRoadID","Distance_m","DispositionID"])
         for rownum, origin in enumerate(origins.itertuples(index=False), 1):
             point = origin.geometry
             idx, _, snap, gap, measure = engine.nearest_edge(point, geoms, tree)
@@ -198,7 +201,7 @@ def export_routes(graph, edges, origins, folder):
                     output.write({"geometry":mapping(MultiLineString([p[2] for p in pieces])),
                                   "properties":{k:record[k] for k in schema["properties"]}})
                     for seq, (edgeid, roadid, line) in enumerate(pieces,1):
-                        segments.writerow([routeid,seq,edgeid,roadid,line.length])
+                        segments.writerow([routeid,seq,edgeid,roadid,line.length,string(disposition_by_edge.get(edgeid))])
                         segment_count += 1
                 end_records.append({"RouteID":routeid,"DestinationRoadID":record["DestinationRoadID"]})
                 end_geoms.append(end)
@@ -253,7 +256,7 @@ def main():
     graph = engine.build_graph(edges)
     if snapshot and (graph.number_of_nodes()!=snapshot["Nodes"] or graph.number_of_edges()!=snapshot["Edges"]):
         raise ValueError("Reviewed graph counts changed")
-    summary, segment_count = export_routes(graph,edges,origins,folder)
+    summary, segment_count = export_routes(graph,edges,origins,folder,config["step1"].get("disposition_id_field","DISP_NUM"))
     reachable = summary.RouteStatus.isin(["ROUTED","ALREADY_PUBLIC"])
     if snapshot:
         audit_path = args.reviewed_cache.parent / "Origin_Component_QA.csv"
