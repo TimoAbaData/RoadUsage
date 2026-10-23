@@ -1,0 +1,30 @@
+{
+  "origins": {
+    "WELL": {
+      "company_name_field": "Name",
+      "company_code_field": "CompanyId",
+      "namespace": "AER",
+      "name_field": "UWI",
+      "role": "WELL_SOURCE_COMPANY"
+    },
+    "ERCB_FACILITY": {
+      "company_code_field": "oper_code",
+      "namespace": "AER",
+      "role": "FACILITY_OPERATOR"
+    },
+    "EQUIPMENT": {
+      "company_code_field": "OwnedByCompanyID",
+      "namespace": "EQUIPMENT",
+      "name_field": "Name",
+      "role": "EQUIPMENT_OWNER"
+    }
+  },
+  "lookups": [],
+  "aliases": {},
+  "site_tolerance_m": 10.0,
+  "origin_priority": [
+    "WELL",
+    "ERCB_FACILITY",
+    "EQUIPMENT"
+  ]
+}

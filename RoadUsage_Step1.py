@@ -102,9 +102,7 @@ def prepare_projected_inputs():
                 f"{label} does not exist:\n{source_fc}"
             )
 
-        source_sr = arcpy.Describe(
-            source_fc
-        ).spatialReference
+        source_sr = arcpy.Describe( source_fc).spatialReference
 
         msg("")
         msg(f"{label}")

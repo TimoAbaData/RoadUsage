@@ -22,23 +22,23 @@
   },
   "origins": [
     {
+      "path": "F:\\Road Usage\\Progress\\RoadUsageProcess.gdb\\oil_and_gas_wells_pt_SampleClip",
+      "id_field": "WellId",
+      "origin_type": "WELL",
+      "name_field": "Name",
+      "company_field": "CompanyId"
+    },
+    {
       "path": "F:\\Road Usage\\Progress\\RoadUsageProcess.gdb\\ErcbFacility_SampleClip",
       "id_field": "FacilityId",
-      "origin_type": "ERCB_FACILITY",
+      "origin_type": "FACILITY",
       "name_field": null,
-      "company_field": null
+      "company_field": "oper_code"
     },
     {
       "path": "F:\\Road Usage\\Progress\\RoadUsageProcess.gdb\\abadata2_dbo_equipment_SampleClip",
       "id_field": "FacilityID",
       "origin_type": "EQUIPMENT",
-      "name_field": null,
-      "company_field": null
-    },
-    {
-      "path": "F:\\Road Usage\\Progress\\RoadUsageProcess.gdb\\oil_and_gas_wells_pt_SampleClip",
-      "id_field": "WellId",
-      "origin_type": "WELL",
       "name_field": null,
       "company_field": null
     }
